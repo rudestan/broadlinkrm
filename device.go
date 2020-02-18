@@ -48,6 +48,14 @@ type device struct {
 	id         []byte
 }
 
+type DeviceInfo struct {
+	Id string
+	Ip string
+	Mac string
+	DeviceType string
+	Key string
+}
+
 type unencryptedRequest struct {
 	command byte
 	payload []byte

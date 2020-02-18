@@ -146,12 +146,32 @@ func (b *Broadlink) AddManualDevice(ip, mac, key, id string, deviceType int) err
 	return nil
 }
 
-func (b Broadlink) getDevice(id string) *device {
+func (b *Broadlink) getDevice(id string) *device {
 	d, ok := b.lookup[strings.ToLower(id)]
 	if !ok {
 		return nil
 	}
 	return d
+}
+
+func (b *Broadlink) GetDeviceInfo(id string) (DeviceInfo, error)  {
+	var deviceInfo DeviceInfo
+
+	d, err := b.deviceExistsAndIsKnown(id)
+
+	if err != nil {
+		return deviceInfo, err
+	}
+
+	deviceInfo = DeviceInfo{
+		Id:			hex.EncodeToString(d.id),
+		Ip:         d.remoteAddr,
+		Mac:        d.mac.String(),
+		DeviceType: fmt.Sprintf("0x%04x", d.deviceType),
+		Key:        hex.EncodeToString(d.key),
+	}
+
+	return deviceInfo, nil
 }
 
 func (b *Broadlink) readPacket(conn net.PacketConn) {
@@ -331,12 +351,16 @@ func calculateChecksum(p []byte) [2]byte {
 }
 
 func (b Broadlink) deviceExistsAndIsKnown(id string) (*device, error) {
-	if len(b.devices) == 0 {
+	if len(b.lookup) == 0 {
 		return nil, fmt.Errorf("no devices")
 	}
 	var d *device
 	if len(id) == 0 {
-		d = b.devices[0]
+		for _, dev := range b.lookup {
+			d = dev
+
+			break
+		}
 	} else {
 		d = b.getDevice(id)
 		if d == nil {
