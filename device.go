@@ -548,20 +548,24 @@ func (d *device) getPowerState() (bool, error) {
 	if resp.Type == DeviceError {
 		return false, errors.New("device responded with an error code")
 	}
-	if resp.Type != CommandOK {
-		return false, fmt.Errorf("expected response type %v but got %v instead", CommandOK, resp.Type)
+
+	var deviceData byte
+
+	if len(resp.Data) == 1 { // by some reason SC1 switch and SP3-EU returns power state as Temperature response with 2 bytes
+		deviceData = resp.Data[0]
+	} else if len(resp.Data) == 5 {
+		deviceData = resp.Data[4]
+	} else {
+		return false, fmt.Errorf("received a response payload of length %v - expected either 1 or 5 bytes", len(resp.Data))
 	}
-	if len(resp.Data) < 5 {
-		return false, fmt.Errorf("received a response payload of length %v - expected at least 5 bytes", len(resp.Data))
-	}
-	b := resp.Data[4]
-	switch b {
+
+	switch deviceData {
 	case 0:
 		return false, nil
 	case 1:
 		return true, nil
 	default:
-		return false, fmt.Errorf("received unknown state - expected 0 or 1 but got 0x%02x instead", b)
+		return false, fmt.Errorf("received unknown state - expected 0 or 1 but got 0x%02x instead", deviceData)
 	}
 }
 
