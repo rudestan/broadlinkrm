@@ -46,14 +46,19 @@ type device struct {
 	key        []byte
 	iv         []byte
 	id         []byte
+	debug bool
 }
 
 type DeviceInfo struct {
 	Id string
+	Name string
 	Ip string
 	Mac string
 	DeviceType string
 	Key string
+	SupportsIR bool
+	SupportsRF bool
+	SupportsPower bool
 }
 
 type unencryptedRequest struct {
@@ -61,7 +66,7 @@ type unencryptedRequest struct {
 	payload []byte
 }
 
-func newDevice(remoteAddr string, mac net.HardwareAddr, timeout, deviceType int) (*device, error) {
+func newDevice(remoteAddr string, mac net.HardwareAddr, timeout, deviceType int, debug bool) (*device, error) {
 	rand.Seed(time.Now().Unix())
 	d := &device{
 		remoteAddr: remoteAddr,
@@ -72,6 +77,7 @@ func newDevice(remoteAddr string, mac net.HardwareAddr, timeout, deviceType int)
 		key:        []byte{0x09, 0x76, 0x28, 0x34, 0x3f, 0xe9, 0x9e, 0x23, 0x76, 0x5c, 0x15, 0x13, 0xac, 0xcf, 0x8b, 0x02},
 		iv:         []byte{0x56, 0x2e, 0x17, 0x99, 0x6d, 0x09, 0x3d, 0x28, 0xdd, 0xb3, 0xba, 0x69, 0x5a, 0x2e, 0x6f, 0x58},
 		id:         []byte{0, 0, 0, 0},
+		debug: 		debug,
 	}
 
 	resp, err := d.serverRequest(authenticatePayload())
@@ -306,7 +312,9 @@ func (d *device) readPacket() (Response, error) {
 	if command == 0xe9 {
 		copy(d.key, payload[0x04:0x14])
 		copy(d.id, payload[:0x04])
-		log.Printf("Device %v ready - updating to a new key %v and new id %v", d.mac.String(), hex.EncodeToString(d.key), hex.EncodeToString(d.id))
+		if d.debug {
+			log.Printf("Device %v ready - updating to a new key %v and new id %v", d.mac.String(), hex.EncodeToString(d.key), hex.EncodeToString(d.id))
+		}
 		processedPayload.Type = AuthOK
 		return processedPayload, nil
 	}

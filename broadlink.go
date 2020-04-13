@@ -2,6 +2,7 @@ package broadlinkrm
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +18,7 @@ type Broadlink struct {
 	timeout int // in seconds
 	devices []*device
 	lookup  map[string]*device
+	debug bool
 }
 
 // NewBroadlink creates and initializes a new Broadlink struct.
@@ -24,8 +26,13 @@ func NewBroadlink() Broadlink {
 	b := Broadlink{
 		timeout: defaultTimeout,
 		lookup:  make(map[string]*device),
+		debug: true,
 	}
 	return b
+}
+
+func (b *Broadlink) DebugOff()  {
+	b.debug = false
 }
 
 // WithTimeout sets the timeout for all subsequent read operations.
@@ -47,7 +54,10 @@ func (b *Broadlink) Discover() error {
 	}
 	defer conn.Close()
 
-	log.Printf("Listening to address %v", conn.LocalAddr().String())
+	if b.debug {
+		log.Printf("Listening to address %v", conn.LocalAddr().String())
+	}
+
 	err = sendBroadcastPacket(conn)
 	if err != nil {
 		return fmt.Errorf("error sending broadcast packet: %v", err)
@@ -146,6 +156,22 @@ func (b *Broadlink) AddManualDevice(ip, mac, key, id string, deviceType int) err
 	return nil
 }
 
+func (b *Broadlink) GetDeviceInfoList() map[string]DeviceInfo  {
+	deviceInfoList := make(map[string]DeviceInfo)
+
+	for _, device := range b.devices {
+		deviceInfo, err := b.GetDeviceInfo(device.remoteAddr)
+
+		if err != nil {
+			continue
+		}
+
+		deviceInfoList[device.remoteAddr] = deviceInfo
+	}
+
+	return deviceInfoList
+}
+
 func (b *Broadlink) getDevice(id string) *device {
 	d, ok := b.lookup[strings.ToLower(id)]
 	if !ok {
@@ -163,12 +189,22 @@ func (b *Broadlink) GetDeviceInfo(id string) (DeviceInfo, error)  {
 		return deviceInfo, err
 	}
 
+	devChar := isKnownDevice(d.deviceType)
+
+	if devChar.known != true {
+		return deviceInfo, errors.New("device is not known")
+	}
+
 	deviceInfo = DeviceInfo{
 		Id:			hex.EncodeToString(d.id),
+		Name: 		devChar.name,
 		Ip:         d.remoteAddr,
 		Mac:        d.mac.String(),
 		DeviceType: fmt.Sprintf("0x%04x", d.deviceType),
 		Key:        hex.EncodeToString(d.key),
+		SupportsIR: devChar.ir,
+		SupportsRF: devChar.rf,
+		SupportsPower: devChar.power,
 	}
 
 	return deviceInfo, nil
@@ -187,11 +223,17 @@ func (b *Broadlink) readPacket(conn net.PacketConn) {
 			if ok && e.Timeout() {
 				break
 			}
-			log.Printf("Error reading UDP packet: %v", err)
+			if b.debug {
+				log.Printf("Error reading UDP packet: %v", err)
+			}
 		}
-		log.Printf("Received packet of length %v bytes from %v", plen, remote.String())
+		if b.debug {
+			log.Printf("Received packet of length %v bytes from %v", plen, remote.String())
+		}
 		if plen < 0x40 {
-			log.Print("Ignoring packet because it is too short")
+			if b.debug {
+				log.Print("Ignoring packet because it is too short")
+			}
 			return
 		}
 		var mac net.HardwareAddr
@@ -215,23 +257,33 @@ func (b *Broadlink) addDevice(remote net.Addr, mac net.HardwareAddr, deviceType 
 	}
 	devChar := isKnownDevice(deviceType)
 	if !devChar.known {
-		log.Printf("Unknown device (0x%04x) at address %v, MAC %v", deviceType, remoteAddr, mac.String())
+		if b.debug {
+			log.Printf("Unknown device (0x%04x) at address %v, MAC %v", deviceType, remoteAddr, mac.String())
+		}
 		return
 	}
 	if !devChar.supported {
-		log.Printf("Unsupported %v (0x%04x) found at address %v, MAC %v", devChar.name, deviceType, remoteAddr, mac.String())
+		if b.debug {
+			log.Printf("Unsupported %v (0x%04x) found at address %v, MAC %v", devChar.name, deviceType, remoteAddr, mac.String())
+		}
 	}
 
 	_, ipOK := b.lookup[strings.ToLower(remoteAddr)]
 	_, macOK := b.lookup[strings.ToLower(mac.String())]
 	if ipOK || macOK {
-		log.Printf("We already know about %v, MAC %v - skipping", remoteAddr, mac.String())
+		if b.debug {
+			log.Printf("We already know about %v, MAC %v - skipping", remoteAddr, mac.String())
+		}
 		return
 	}
-	log.Printf("Found a supported %v, device type %d (0x%04x) at address %v, MAC %v", devChar.name, deviceType, deviceType, remoteAddr, mac.String())
-	dev, err := newDevice(remoteAddr, mac, b.timeout, deviceType)
+	if b.debug {
+		log.Printf("Found a supported %v, device type %d (0x%04x) at address %v, MAC %v", devChar.name, deviceType, deviceType, remoteAddr, mac.String())
+	}
+	dev, err := newDevice(remoteAddr, mac, b.timeout, deviceType, b.debug)
 	if err != nil {
-		log.Printf("Error creating new device: %v", err)
+		if b.debug {
+			log.Printf("Error creating new device: %v", err)
+		}
 		return
 	}
 	b.devices = append(b.devices, dev)
